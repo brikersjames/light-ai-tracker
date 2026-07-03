@@ -1,0 +1,28 @@
+name: Update ALGO price
+on:
+  schedule:
+    - cron: '*/30 13-21 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  price:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch quote from Yahoo Finance
+        run: |
+          PRICE=$(curl -s -A "Mozilla/5.0" "https://query1.finance.yahoo.com/v8/finance/chart/ALGO.NE?range=1d&interval=1d" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['chart']['result'][0]['meta']['regularMarketPrice'])")
+          if [ -z "$PRICE" ]; then echo "No price returned"; exit 1; fi
+          mkdir -p data
+          echo "{\"symbol\":\"ALGO.NE\",\"price\":$PRICE,\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > data/price.json
+      - name: Commit if changed
+        run: |
+          git config user.name "price-bot"
+          git config user.email "actions@github.com"
+          git add data/price.json
+          git diff --cached --quiet || git commit -m "Update ALGO price"
+          git push
