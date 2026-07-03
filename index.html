@@ -18,6 +18,9 @@
   .pricebox{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 18px; text-align:right; min-width:220px;}
   .pricebox .px{font-size:28px; font-weight:700;}
   .pricebox .meta{font-size:11px; color:var(--muted); margin-top:2px;}
+  .pricebox .topstat{font-size:17px; font-weight:700; margin-top:8px;}
+  .pricebox .topstat .lbl{font-size:10px; color:var(--muted); font-weight:500; letter-spacing:.04em;}
+  .pricebox .topstat.sub{font-size:13px; font-weight:600; margin-top:2px;}
   .pricebox button, .pricebox input{margin-top:6px;}
   .grid{display:grid; gap:14px;}
   .grid.cards{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));}
@@ -73,6 +76,8 @@
     <div class="label muted" style="font-size:11px;">ALGO.NE LAST PRICE (CAD)</div>
     <div class="px" id="priceVal">—</div>
     <div class="meta" id="priceMeta">loading…</div>
+    <div class="topstat" id="topGL">—</div>
+    <div class="topstat sub" id="topShares"></div>
     <div style="display:flex; gap:6px; justify-content:flex-end;">
       <input type="number" step="0.005" id="manualPrice" placeholder="manual" style="width:90px;">
       <button class="small ghost" onclick="setManualPrice()">Set</button>
@@ -321,6 +326,7 @@ function computeSPV(){
   s.grossValue = price!=null ? s.asConverted + s.warrantNet : null;
   s.afterFee = price!=null ? s.grossValue*(1-s.distributionFee) : null;
   s.gain = price!=null ? s.afterFee - s.costBasis : null;
+  s.convGain = price!=null ? s.asConverted - s.costBasis : null;   // shares-only view (cost fully attributed to debenture)
   // debenture floor: 12%/yr compounding quarterly since close
   const days = (Date.now() - new Date(s.closeDate+'T00:00:00'))/86400000;
   const quarters = Math.max(0, days/365.25*4);
@@ -392,6 +398,13 @@ function render(){
       totalPL!=null? `realized ${sign(realized)}${fmt$(realized,0)} · unrealized ${sign(unrealized)}${fmt$(unrealized,0)} · SPV ${sign(spv.gain)}${fmt$(spv.gain,0)} · ${(totalPL/netIn*100).toFixed(1)}% on net cash`:'' ,
       totalPL!=null?cls(totalPL):'');
 
+  // ---- top-of-page stats under the price
+  const totalShares = accts.reduce((s,x)=>s+x.shares,0) + spv.myShares + spv.myWarrants;
+  $('topGL').innerHTML = totalPL!=null
+    ? `<span class="${cls(totalPL)}">${sign(totalPL)}${fmt$(totalPL,0)}</span> <span class="lbl">TOTAL G/L</span>` : '—';
+  $('topShares').innerHTML =
+    `${fmtN(totalShares)} <span class="lbl">TOTAL SHARES (incl. SPV converted + exercised)</span>`;
+
   // ---- accounts
   $('accountCards').innerHTML = accts.map(x=>{
     const totPL = x.realized + (x.unrealized||0);
@@ -410,17 +423,20 @@ function render(){
   const itm = price!=null && price > spv.warrantStrike;
   $('spvCards').innerHTML =
     card('Invested', fmt$(spv.costBasis,0), `${fmt$(spv.contribution,0)} + ${fmt$(spv.fee,0)} fee · ${(spv.proRata*100).toFixed(1)}% of the $5M SPV`) +
-    card('As-converted shares', fmtN(spv.myShares), `via debenture @ $${spv.conversionPrice} · worth ${spv.asConverted!=null?fmt$(spv.asConverted,0):'—'} at market`) +
-    card('Warrants (2.8M @ $0.25)',
+    card('Converted shares G/L', spv.convGain!=null? sign(spv.convGain)+fmt$(spv.convGain,0):'—',
+      spv.asConverted!=null? `${fmtN(spv.myShares)} sh via debenture @ $${spv.conversionPrice} → worth ${fmt$(spv.asConverted,0)} at market`:'',
+      spv.convGain!=null?cls(spv.convGain):'') +
+    card('Warrants G/L (2.8M @ $0.25)',
       spv.warrantNet!=null ? (itm? sign(spv.warrantNet)+fmt$(spv.warrantNet,0) : '$0') : '—',
       spv.warrantNet!=null ? (itm? `if exercised: ${fmt$(spv.warrantGross,0)} of stock − ${fmt$(spv.warrantExerciseCost,0)} exercise cost` : `out of the money (strike $${spv.warrantStrike} · exercise would cost ${fmt$(spv.warrantExerciseCost,0)})`) : '',
       itm?'pos':'amberc') +
-    card('SPV gain / loss', spv.gain!=null? sign(spv.gain)+fmt$(spv.gain,0):'—',
-      spv.gain!=null? `value net of 2% distribution fee: ${fmt$(spv.afterFee,0)}`:'', spv.gain!=null?cls(spv.gain):'');
+    card('SPV total G/L', spv.gain!=null? sign(spv.gain)+fmt$(spv.gain,0):'—',
+      spv.gain!=null? `shares + warrants, after 2% distribution fee · SPV value ${fmt$(spv.afterFee,0)}`:'', spv.gain!=null?cls(spv.gain):'');
 
   $('spvFootnote').innerHTML =
     `<b>SPV notes:</b> Your ${(spv.proRata*100).toFixed(1)}% share of MV Capital LP = ${fmtN(spv.myShares)} shares on conversion of the $5M debenture at $${spv.conversionPrice}, plus ${fmtN(spv.myWarrants)} warrants at $${spv.warrantStrike} (36-month term). ` +
     `Warrant value is shown net of the ${fmt$(spv.warrantExerciseCost,0)} exercise cost and only counted when the stock trades above the strike. ` +
+    `Converted-shares G/L attributes the full ${fmt$(spv.costBasis,0)} cost to the debenture; warrants are shown as pure upside. ` +
     `Downside floor if never converted: principal + 12% compounding quarterly ≈ <b>${fmt$(spv.debFloor,0)}</b> today (repayable at 24-month maturity; early prepayment at 105%). ` +
     `GP controls all conversion/exercise/sale timing; a 4-month hold and the 19.9% exchange cap may stage the exit. Values are pre-tax estimates, not advice.`;
 
