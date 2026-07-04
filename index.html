@@ -368,7 +368,23 @@ async function fetchPrice(manualRefresh){
   render();
 }
 /* ================= NEWS ================= */
+function renderNews(n){
+  const d = new Date(n.date);
+  $('newsCard').innerHTML = `
+    <div class="label">LATEST RELEASE · ${isNaN(d)?'':d.toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})}</div>
+    <div style="font-size:15px; font-weight:600; margin-top:6px; line-height:1.4;">
+      <a href="${esc(n.link)}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none;">${esc(n.title)}</a></div>
+    <div class="sub" style="margin-top:6px;">
+      <a href="https://ca.finance.yahoo.com/quote/ALGO.NE/news/" target="_blank" rel="noopener" style="color:var(--muted);">more ALGO news on Yahoo Finance &rarr;</a></div>`;
+}
 async function fetchNews(){
+  // 1) news.json committed by the GitHub Action (reliable, same-origin)
+  try{
+    const r = await fetch('data/news.json?cb='+Date.now(), {cache:'no-store'});
+    if (r.ok){ const j = await r.json();
+      if (j.items && j.items.length){ renderNews(j.items[0]); return; } }
+  }catch(e){}
+  // 2) live RSS via CORS proxies (best effort)
   const feed = 'https://feeds.finance.yahoo.com/rss/2.0/headline?s=ALGO.NE&region=US&lang=en-US';
   const tries = ['https://api.allorigins.win/raw?url='+encodeURIComponent(feed),
                  'https://corsproxy.io/?url='+encodeURIComponent(feed)];
@@ -380,16 +396,10 @@ async function fetchNews(){
       const items = [...doc.querySelectorAll('item')].map(it=>({
         title: it.querySelector('title')?.textContent||'',
         link: it.querySelector('link')?.textContent||'',
-        date: new Date(it.querySelector('pubDate')?.textContent||0)
-      })).filter(x=>x.title).sort((a,b)=>b.date-a.date);
+        date: it.querySelector('pubDate')?.textContent||''
+      })).filter(x=>x.title).sort((a,b)=>new Date(b.date)-new Date(a.date));
       if (!items.length) continue;
-      const n = items[0];
-      $('newsCard').innerHTML = `
-        <div class="label">LATEST RELEASE · ${n.date.toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})}</div>
-        <div style="font-size:15px; font-weight:600; margin-top:6px; line-height:1.4;">
-          <a href="${esc(n.link)}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none;">${esc(n.title)}</a></div>
-        <div class="sub" style="margin-top:6px;">
-          <a href="https://ca.finance.yahoo.com/quote/ALGO.NE/news/" target="_blank" rel="noopener" style="color:var(--muted);">more ALGO news on Yahoo Finance &rarr;</a></div>`;
+      renderNews(items[0]);
       return;
     }catch(e){}
   }
