@@ -115,6 +115,9 @@
   <div class="footnote">Net amount defaults to shares × price (negative for buys, positive for sells). Override it if your confirmation shows commission.</div>
 </div>
 
+<h2>Latest news (Yahoo Finance)</h2>
+<div class="card" id="newsCard"><span class="muted">loading news…</span></div>
+
 <h2>Trade history</h2>
 <div class="filters" id="acctFilters"></div>
 <div class="tablewrap">
@@ -189,6 +192,7 @@ const fmt$ = (v, dp=2) => (v<0?'-':'') + '$' + Math.abs(v).toLocaleString('en-CA
 const fmtN = v => v.toLocaleString('en-CA');
 const cls = v => v >= 0 ? 'pos' : 'neg';
 const sign = v => (v>=0?'+':'') ;
+const esc = s => String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function banner(msg, type){ const b=$('banner'); b.className='banner '+type; b.innerHTML=msg; }
 function ghConfig(){ try{ return JSON.parse(localStorage.getItem(LS.gh)); }catch(e){ return null; } }
 
@@ -363,6 +367,35 @@ async function fetchPrice(manualRefresh){
   priceInfo = 'unavailable — enter a manual price';
   render();
 }
+/* ================= NEWS ================= */
+async function fetchNews(){
+  const feed = 'https://feeds.finance.yahoo.com/rss/2.0/headline?s=ALGO.NE&region=US&lang=en-US';
+  const tries = ['https://api.allorigins.win/raw?url='+encodeURIComponent(feed),
+                 'https://corsproxy.io/?url='+encodeURIComponent(feed)];
+  for (const u of tries){
+    try{
+      const r = await fetch(u, {cache:'no-store'});
+      if (!r.ok) continue;
+      const doc = new DOMParser().parseFromString(await r.text(), 'text/xml');
+      const items = [...doc.querySelectorAll('item')].map(it=>({
+        title: it.querySelector('title')?.textContent||'',
+        link: it.querySelector('link')?.textContent||'',
+        date: new Date(it.querySelector('pubDate')?.textContent||0)
+      })).filter(x=>x.title).sort((a,b)=>b.date-a.date);
+      if (!items.length) continue;
+      const n = items[0];
+      $('newsCard').innerHTML = `
+        <div class="label">LATEST RELEASE · ${n.date.toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})}</div>
+        <div style="font-size:15px; font-weight:600; margin-top:6px; line-height:1.4;">
+          <a href="${esc(n.link)}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none;">${esc(n.title)}</a></div>
+        <div class="sub" style="margin-top:6px;">
+          <a href="https://ca.finance.yahoo.com/quote/ALGO.NE/news/" target="_blank" rel="noopener" style="color:var(--muted);">more ALGO news on Yahoo Finance &rarr;</a></div>`;
+      return;
+    }catch(e){}
+  }
+  $('newsCard').innerHTML = '<span class="muted">News feed unavailable right now — <a href="https://ca.finance.yahoo.com/quote/ALGO.NE/news/" target="_blank" rel="noopener" style="color:var(--accent);">view on Yahoo Finance</a></span>';
+}
+
 function setManualPrice(){
   const v = parseFloat($('manualPrice').value);
   if (!isNaN(v) && v>0){ price=v; priceInfo='manual entry';
@@ -478,6 +511,7 @@ function loadGhForm(){
   await loadTrades();
   render();
   fetchPrice();
+  fetchNews();
   setInterval(fetchPrice, 5*60*1000); // refresh every 5 min
 })();
 </script>
