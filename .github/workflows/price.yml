@@ -1,7 +1,7 @@
 name: Update ALGO price
 on:
   schedule:
-    - cron: '*/30 13-21 * * 1-5'
+    - cron: '*/30 13-21 * * 1-5'   # every 30 min during TSX hours (UTC)
   workflow_dispatch:
 
 permissions:
@@ -19,10 +19,35 @@ jobs:
           if [ -z "$PRICE" ]; then echo "No price returned"; exit 1; fi
           mkdir -p data
           echo "{\"symbol\":\"ALGO.NE\",\"price\":$PRICE,\"time\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > data/price.json
+      - name: Fetch news from Yahoo Finance RSS
+        continue-on-error: true
+        run: |
+          python3 << 'EOF'
+          import urllib.request, json, xml.etree.ElementTree as ET, email.utils
+          req = urllib.request.Request(
+              'https://feeds.finance.yahoo.com/rss/2.0/headline?s=ALGO.NE&region=US&lang=en-US',
+              headers={'User-Agent': 'Mozilla/5.0'})
+          xml = urllib.request.urlopen(req, timeout=30).read()
+          root = ET.fromstring(xml)
+          items = []
+          for it in root.iter('item'):
+              t = (it.findtext('title') or '').strip()
+              l = (it.findtext('link') or '').strip()
+              d = (it.findtext('pubDate') or '').strip()
+              try:
+                  ts = email.utils.parsedate_to_datetime(d).isoformat()
+              except Exception:
+                  ts = d
+              if t:
+                  items.append({'title': t, 'link': l, 'date': ts})
+          items.sort(key=lambda x: x['date'], reverse=True)
+          json.dump({'symbol': 'ALGO.NE', 'items': items[:5]}, open('data/news.json', 'w'))
+          print('news items:', len(items))
+          EOF
       - name: Commit if changed
         run: |
           git config user.name "price-bot"
           git config user.email "actions@github.com"
-          git add data/price.json
-          git diff --cached --quiet || git commit -m "Update ALGO price"
+          git add data/price.json data/news.json
+          git diff --cached --quiet || git commit -m "Update ALGO price/news"
           git push
